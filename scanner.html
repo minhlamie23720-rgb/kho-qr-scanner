@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#172b4d">
+  <title>Quét mã QR - Quản lý kho</title>
+
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #f3f6fb;
+      color: #202938;
+      font-family: Arial, sans-serif;
+      padding: 18px;
+    }
+
+    .wrap {
+      max-width: 560px;
+      margin: 0 auto;
+    }
+
+    .top {
+      background: #172b4d;
+      color: #fff;
+      padding: 18px;
+      border-radius: 16px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 22px;
+      margin: 0 0 6px;
+    }
+
+    .muted {
+      opacity: .8;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 5px 18px #172b4d0d;
+    }
+
+    #reader {
+      width: 100%;
+      overflow: hidden;
+      border-radius: 12px;
+    }
+
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 12px;
+      padding: 15px;
+      font-weight: 700;
+      font-size: 16px;
+      margin-top: 10px;
+      background: #2563eb;
+      color: #fff;
+    }
+
+    button.secondary {
+      background: #e8eef8;
+      color: #172b4d;
+    }
+
+    .status {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #eff6ff;
+      color: #1e40af;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .code {
+      font-size: 22px;
+      font-weight: 800;
+      text-align: center;
+      margin: 14px 0;
+      word-break: break-all;
+    }
+
+    .fallback {
+      font-size: 13px;
+      color: #64748b;
+      text-align: center;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="top">
+      <h1>Quét mã QR sản phẩm</h1>
+      <div class="muted">
+        Đưa mã QR vào khung hình. Sau khi nhận mã,
+        trang sẽ gửi mã về ứng dụng kho đang mở.
+      </div>
+    </div>
+
+    <div class="card">
+      <div id="reader"></div>
+
+      <div id="status" class="status">
+        Đang khởi động camera. Nếu được hỏi, hãy chọn Cho phép.
+      </div>
+
+      <div id="lastCode" class="code"></div>
+
+      <button
+        id="restartBtn"
+        class="secondary"
+        style="display:none"
+        onclick="resumeScanner()">
+        QUÉT MÃ TIẾP THEO
+      </button>
+
+      <button class="secondary" onclick="window.close()">
+        ĐÓNG TRANG QUÉT
+      </button>
+
+      <div class="fallback">
+        Nếu không tự gửi được mã, hãy quay lại ứng dụng kho
+        và nhập mã thủ công.
+      </div>
+    </div>
+  </div>
+
+<script>
+  let qrScanner = null;
+  let pausedForParent = false;
+
+  const statusEl = document.getElementById('status');
+  const codeEl = document.getElementById('lastCode');
+  const restartBtn = document.getElementById('restartBtn');
+
+  function setStatus(text) {
+    statusEl.textContent = text;
+  }
+
+  function onDecoded(decodedText) {
+    if (pausedForParent) return;
+
+    const qr = String(decodedText || '').trim();
+    if (!qr) return;
+
+    pausedForParent = true;
+
+    try {
+      qrScanner.pause(true);
+    } catch (e) {}
+
+    codeEl.textContent = qr;
+    restartBtn.style.display = 'block';
+
+    setStatus('Đã quét được mã. Đang gửi về ứng dụng quản lý kho...');
+
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(
+        { type: 'KHO_QR_SCANNED', qr: qr },
+        '*'
+      );
+
+      setStatus(
+        'Đã gửi mã về ứng dụng. Xác nhận giao dịch ở tab ứng dụng kho; sau đó camera sẽ sẵn sàng quét tiếp.'
+      );
+    } else {
+      setStatus(
+        'Không tìm thấy tab ứng dụng kho. Hãy mở trang quét từ nút trong ứng dụng kho.'
+      );
+    }
+  }
+
+  function resumeScanner() {
+    pausedForParent = false;
+    codeEl.textContent = '';
+    restartBtn.style.display = 'none';
+
+    try {
+      qrScanner.resume();
+      setStatus(
+        'Camera đang hoạt động. Đưa mã QR tiếp theo vào khung hình.'
+      );
+    } catch (e) {
+      setStatus('Không thể tiếp tục camera. Hãy tải lại trang.');
+    }
+  }
+
+  window.addEventListener('message', function(event) {
+    if (event.source !== window.opener) return;
+
+    if (event.data && event.data.type === 'KHO_QR_RESUME') {
+      resumeScanner();
+    }
+  });
+
+  async function initCamera() {
+    if (!window.isSecureContext) {
+      setStatus('Trang quét cần được mở bằng HTTPS.');
+      return;
+    }
+
+    if (
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia
+    ) {
+      setStatus(
+        'Trình duyệt không hỗ trợ camera. Hãy mở bằng Safari mới nhất.'
+      );
+      return;
+    }
+
+    try {
+      qrScanner = new Html5Qrcode('reader');
+
+      await qrScanner.start(
+        { facingMode: 'environment' },
+        {
+          fps: 12,
+          qrbox: { width: 250, height: 250 },
+          aspectRatio: 1
+        },
+        onDecoded,
+        function() {}
+      );
+
+      setStatus('Camera đã bật. Đưa mã QR vào khung hình.');
+
+    } catch (err) {
+      setStatus(
+        'Không mở được camera: ' +
+        (err && err.message ? err.message : String(err)) +
+        '. Hãy kiểm tra quyền Camera cho trang GitHub Pages trong cài đặt Safari.'
+      );
+    }
+  }
+
+  initCamera();
+</script>
+</body>
+</html>
